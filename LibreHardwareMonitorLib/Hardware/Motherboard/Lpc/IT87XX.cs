@@ -5,6 +5,7 @@
 // All Rights Reserved.
 
 using System;
+using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 
@@ -250,6 +251,9 @@ internal class IT87XX : ISuperIO
 
     public void SetControl(int index, byte? value)
     {
+        Debug.WriteLine("SetControl: fan {0} {1}%",
+            index, value);
+
         if (index < 0 || index >= Controls.Length)
             throw new ArgumentOutOfRangeException(nameof(index));
 
@@ -258,6 +262,69 @@ internal class IT87XX : ISuperIO
 
         if (value.HasValue)
         {
+            if (Chip == Chip.IT879XE)
+            {
+                if (!Ring0.WaitPciBusMutex(10))
+                {
+                    Debug.WriteLine("SetControl: failed to get pci mutex");
+                    return;
+                }
+
+                // see D14F3x https://www.amd.com/system/files/TechDocs/55072_AMD_Family_15h_Models_70h-7Fh_BKDG.pdf 
+                uint AmdIsaBridgeAddress = Ring0.GetPciAddress(0x0, 0x14, 0x3);
+                const uint IOorMemoryPortDecodeEnableRegister = 0x48;
+                const int MemoryRangePortEnableBit = 5;
+                const uint PCIMemoryAddressforLPCTargetCycles = 0x60;
+                const uint ROMAddressRange2 = 0x6C;
+
+                Ring0.ReadPciConfig(AmdIsaBridgeAddress, IOorMemoryPortDecodeEnableRegister, out uint current);
+                Ring0.WritePciConfig(AmdIsaBridgeAddress, IOorMemoryPortDecodeEnableRegister, current | (0x1 << MemoryRangePortEnableBit));
+                Ring0.WritePciConfig(AmdIsaBridgeAddress, PCIMemoryAddressforLPCTargetCycles, 0xFF01FF00);
+                Ring0.WritePciConfig(AmdIsaBridgeAddress, ROMAddressRange2, 0xFFFFFF01);
+
+                const uint size = 0xFF;
+                IntPtr base_addr = new IntPtr(0xFF000900);
+
+                InpOut.Open();
+                IntPtr map = InpOut.MapMemory(base_addr, size, out IntPtr handle);
+
+                const uint FanControlBase = 0x50;
+                const uint StartPWMOffset = 0x4;
+                const uint FanControlSize = 0x10;
+
+                unsafe
+                {
+                    byte* fan_config = (byte*)map.ToPointer() + FanControlBase + index * FanControlSize;
+                    fan_config[StartPWMOffset] = value.Value;
+                    fan_config[0x5] = 0;
+                    fan_config[0x7] = 0;
+                    fan_config[0x9] = 0;
+                    fan_config[0xb] = 0;
+                }
+
+                //byte[] bytes = InpOut.ReadMemory(pMemory, size);
+                //Debug.WriteLine(BitConverter.ToString(bytes));
+
+                for (int i = 0; i <= size; ++i)
+                {
+                    if (i % 16 == 0)
+                        Debug.WriteLine("");
+
+                    unsafe
+                    {
+                        Debug.Write((*(((byte*)map.ToPointer()) + i)).ToString("X2") + " ");
+                    }
+                }
+
+                Debug.WriteLine("");
+
+                InpOut.UnmapMemory(handle, map);
+
+                Ring0.WritePciConfig(AmdIsaBridgeAddress, IOorMemoryPortDecodeEnableRegister, current);
+
+                Ring0.ReleasePciBusMutex();
+            }
+
             SaveDefaultFanPwmControl(index);
 
             if (index < 3 && !_initialFanOutputModeEnabled[index])
@@ -499,6 +566,9 @@ internal class IT87XX : ISuperIO
 
     private void WriteByte(byte register, byte value)
     {
+        Debug.WriteLine(
+            "Write: addr reg: {0:X} - reg: {1:X} / addr data: {2:X} - data: {3:X}",
+            _addressReg, register, _dataReg, value);
         Ring0.WriteIoPort(_addressReg, register);
         Ring0.WriteIoPort(_dataReg, value);
         Ring0.ReadIoPort(_addressReg);
