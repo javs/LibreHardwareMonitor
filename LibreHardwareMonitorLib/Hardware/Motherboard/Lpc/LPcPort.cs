@@ -78,6 +78,9 @@ internal class LpcPort
         {
             Ring0.WriteIoPort(RegisterPort, CONFIGURATION_CONTROL_REGISTER);
             Ring0.WriteIoPort(ValuePort, 0x02);
+
+            Ring0.WriteIoPort(0x4E, CONFIGURATION_CONTROL_REGISTER);
+            Ring0.WriteIoPort(0x4F, 0x02);
         }
     }
 

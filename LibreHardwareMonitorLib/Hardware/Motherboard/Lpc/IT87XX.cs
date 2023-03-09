@@ -8,6 +8,7 @@ using System;
 using System.Diagnostics;
 using System.Globalization;
 using System.Text;
+using Microsoft.Win32;
 
 // ReSharper disable once InconsistentNaming
 
@@ -292,14 +293,19 @@ internal class IT87XX : ISuperIO
                 const uint StartPWMOffset = 0x4;
                 const uint FanControlSize = 0x10;
 
+                //unsafe
+                //{
+                //    byte* fan_config = (byte*)map.ToPointer() + FanControlBase + index * FanControlSize;
+                //    fan_config[StartPWMOffset] = value.Value;
+                //    fan_config[0x5] = 0;
+                //    fan_config[0x7] = 0;
+                //    fan_config[0x9] = 0;
+                //    fan_config[0xb] = 0;
+                //}
+
                 unsafe
                 {
-                    byte* fan_config = (byte*)map.ToPointer() + FanControlBase + index * FanControlSize;
-                    fan_config[StartPWMOffset] = value.Value;
-                    fan_config[0x5] = 0;
-                    fan_config[0x7] = 0;
-                    fan_config[0x9] = 0;
-                    fan_config[0xb] = 0;
+                    ((byte*)map.ToPointer())[0x47] = 0;
                 }
 
                 //byte[] bytes = InpOut.ReadMemory(pMemory, size);
@@ -346,6 +352,28 @@ internal class IT87XX : ISuperIO
             {
                 WriteByte(FAN_PWM_CTRL_REG[index], (byte)(value.Value >> 1));
             }
+
+            // FAN_MAIN_CTRL_REG (0x13)
+            // bits 0-2 smartguardian vs on/off mode
+            // FAN_PWM_CTRL_REG (15h,16h,17h)
+            // (sw operation + pwm control?)
+            // 0ppppppp
+            // FAN_PWM_CTRL_EXT_REG (0x63, 0x6b, 0x73)
+            // (smart guardian start pwm)
+            // 0ppppppp
+
+            //WriteByte(FAN_MAIN_CTRL_REG, (byte)(ReadByte(FAN_MAIN_CTRL_REG, out _) | (1 << index)));
+            //WriteByte(FAN_PWM_CTRL_REG[index], 0x7F);
+            //WriteByte(FAN_PWM_CTRL_EXT_REG[index], 0x7F);
+
+            //for (byte i = 0; i <= 0xFF; ++i)
+            //{
+            //    if (i % 16 == 0)
+            //        Debug.WriteLine("");
+
+            //    Ring0.WriteIoPort(0x900, i);
+            //    Debug.Write(Ring0.ReadIoPort(_dataReg));
+            //}
         }
         else
         {

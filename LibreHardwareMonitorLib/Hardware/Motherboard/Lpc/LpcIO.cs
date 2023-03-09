@@ -650,7 +650,7 @@ internal class LpcIO
     private const byte FINTEK_VENDOR_ID_REGISTER = 0x23;
     private const byte IT87_CHIP_VERSION_REGISTER = 0x22;
 
-    private readonly ushort[] REGISTER_PORTS = { 0x2E, 0x4E };
-    private readonly ushort[] VALUE_PORTS = { 0x2F, 0x4F };
+    private readonly ushort[] REGISTER_PORTS = { 0x4E, 0x2E };
+    private readonly ushort[] VALUE_PORTS = { 0x4F, 0x2F };
     // ReSharper restore InconsistentNaming
 }
