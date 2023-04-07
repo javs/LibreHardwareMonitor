@@ -7,6 +7,7 @@
 using System;
 using System.Runtime.InteropServices;
 using System.Threading;
+using HidSharp.Utility;
 using LibreHardwareMonitor.Hardware.Cpu;
 
 namespace LibreHardwareMonitor.Hardware.Motherboard.Lpc;
@@ -45,10 +46,10 @@ internal class GigabyteController
     /// <returns>true on success</returns>
     public bool Enable(bool enabled)
     {
-        // TODO: Intel
         return _vendor switch
         {
             Vendor.AMD => AmdEnable(enabled),
+            Vendor.Intel => IntelEnable(enabled),
             _ => false
         };
     }
@@ -104,6 +105,50 @@ internal class GigabyteController
         return result;
     }
 
+    private bool IntelEnable(bool enabled)
+    {
+        if (!Mutexes.WaitPciBus(10))
+            return false;
+
+        // General Info https://www.intel.com/Assets/PDF/whitepaper/318244.pdf
+        // Registers - see 13.1 LPC Interface PCI Register Address Map
+        // https://www.intel.com/content/www/us/en/io/io-controller-hub-10-family-datasheet.html
+        uint intelIsaBridgeAddress = Ring0.GetPciAddress(0x0, 0x1F, 0x0);
+
+        const uint FirmwareHubDecodeEnable1Register = 0xD8U;    // FWH_DEC_EN1
+        const uint EnabledMask = 0x1; // TODO: this depends on _controllerBaseAddress
+        const uint LPCGenericMemoryRangeRegister = 0x98U;       // LGMR
+
+        uint controllerFanControlAddress = _controllerBaseAddress + ControllerFanControlArea;
+        uint enabledLPCGenericMemoryRangeRegister = ??; // TODO
+
+        Ring0.ReadPciConfig(intelIsaBridgeAddress, FirmwareHubDecodeEnable1Register, out uint originalFirmwareHubDecodeEnable1Register);
+        Ring0.ReadPciConfig(intelIsaBridgeAddress, LPCGenericMemoryRangeRegister, out uint originalLPCGenericMemoryRangeRegister);
+
+        bool originalMmIoEnabled = (originalFirmwareHubDecodeEnable1Register | EnabledMask) != 0;
+
+        if (!originalMmIoEnabled)
+        {
+            Ring0.WritePciConfig(intelIsaBridgeAddress, FirmwareHubDecodeEnable1Register, originalFirmwareHubDecodeEnable1Register | EnabledMask);
+            Ring0.WritePciConfig(intelIsaBridgeAddress, LPCGenericMemoryRangeRegister, enabledLPCGenericMemoryRangeRegister);
+            // TODO - Extra register to modify
+        }
+
+        bool result = Enable(enabled, new IntPtr(controllerFanControlAddress));
+
+        // Restore previous values
+        if (!originalMmIoEnabled)
+        {
+            Ring0.WritePciConfig(intelIsaBridgeAddress, FirmwareHubDecodeEnable1Register, originalFirmwareHubDecodeEnable1Register);
+            Ring0.WritePciConfig(intelIsaBridgeAddress, LPCGenericMemoryRangeRegister, originalLPCGenericMemoryRangeRegister);
+            // TODO - Extra register to modify
+        }
+
+        Mutexes.ReleasePciBus();
+
+        return result;
+    }
+
     private bool Enable(bool enabled, IntPtr pciMmIoBaseAddress)
     {
         // Map PCI memory to this process memory
@@ -117,15 +162,16 @@ internal class GigabyteController
 
         bool current = Convert.ToBoolean(Marshal.ReadByte(mapped, ControllerEnableRegister));
 
-        _initialState ??= current;
+        System.Console.WriteLine("Intel Gigabyte Fan Controller Enabled: {0}", current);
+        //_initialState ??= current;
 
-        // Update Controller State
-        if (current != enabled)
-        {
-            Marshal.WriteByte(mapped, ControllerEnableRegister, Convert.ToByte(enabled));
-            // Give it some time to see the change
-            Thread.Sleep(200);
-        }
+        //// Update Controller State
+        //if (current != enabled)
+        //{
+        //    Marshal.WriteByte(mapped, ControllerEnableRegister, Convert.ToByte(enabled));
+        //    // Give it some time to see the change
+        //    Thread.Sleep(200);
+        //}
 
         InpOut.UnmapMemory(handle, mapped);
         return true;
